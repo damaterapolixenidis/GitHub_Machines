@@ -1,105 +1,23 @@
 name: Windows
 
-on:
-  workflow_dispatch:
-    inputs:
-      auto_restart:
-        description: 'Auto-restart session before GitHub 6h limit (keeps your tunnel alive indefinitely)'
-        required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+on: workflow_dispatch
 
 jobs:
   boot:
-    runs-on: windows-latest
-    timeout-minutes: 355
 
-    permissions:
-      actions: write
-      contents: read
+    runs-on: windows-latest
 
     steps:
-      - name: Download
-        run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-
-      - name: Extract
-        run: Expand-Archive ngrok.zip
-
-      - name: Auth
-        run: .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_TOKEN }}
-
-      - name: Enable TS
-        run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-
-      - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-
-      - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-
-      - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
-
-      - name: Place Desktop Control Scripts
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          REF: ${{ github.ref_name }}
-        shell: pwsh
-        run: |
-          $token   = $env:GH_TOKEN
-          $repo    = $env:REPO
-          $ref     = $env:REF
-          $desktop = "C:\Users\runneradmin\Desktop"
-          New-Item -ItemType Directory -Force -Path $desktop | Out-Null
-
-          $uri = "https://api.github.com/repos/$repo/actions/workflows/Windows-latest.yml/dispatches"
-          $bv  = '{"ref":"' + $ref + '","inputs":{"auto_restart":"true"}}'
-
-          # --- Redeploy.ps1 ---
-          @(
-            "# Trigger a fresh Windows session, then kill the current ngrok tunnel"
-            "Write-Host '[redeploy] Triggering new session...'"
-            "`$h = @{ Authorization = 'token $token'; Accept = 'application/vnd.github.v3+json' }"
-            "`$b = '$bv'"
-            "Invoke-RestMethod -Uri '$uri' -Method POST -Headers `$h -Body `$b -ContentType 'application/json'"
-            "Write-Host '[redeploy] New session queued. Reconnect via RDP in ~30 seconds.'"
-            "Start-Sleep -Seconds 3"
-            "Stop-Process -Name 'ngrok' -Force -ErrorAction SilentlyContinue"
-          ) | Set-Content "$desktop\Redeploy.ps1"
-
-          # --- Wipe.ps1 ---
-          @(
-            "# Kill the ngrok tunnel without triggering a new session"
-            "Write-Host '[wipe] Tearing down RDP tunnel...'"
-            "Stop-Process -Name 'ngrok' -Force -ErrorAction SilentlyContinue"
-            "Write-Host '[wipe] Done. Session destroyed.'"
-          ) | Set-Content "$desktop\Wipe.ps1"
-
-          Write-Host "[setup] Desktop scripts ready: Redeploy.ps1 and Wipe.ps1"
-
-      - name: Auto-Restart Watchdog
-        if: inputs.auto_restart == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          REF: ${{ github.ref_name }}
-        shell: pwsh
-        run: |
-          $watchdog = {
-            param($token, $repo, $ref)
-            Start-Sleep -Seconds 19800
-            $bv  = '{"ref":"' + $ref + '","inputs":{"auto_restart":"true"}}'
-            $uri = "https://api.github.com/repos/$repo/actions/workflows/Windows-latest.yml/dispatches"
-            Invoke-RestMethod -Uri $uri `
-              -Method POST `
-              -Headers @{ Authorization = "token $token"; Accept = "application/vnd.github.v3+json" } `
-              -Body $bv `
-              -ContentType "application/json"
-            Write-Host "[watchdog] New session triggered. Reconnect via RDP in ~30s."
-          }
-          Start-Job -ScriptBlock $watchdog -ArgumentList $env:GH_TOKEN, $env:REPO, $env:REF | Out-Null
-          Write-Host "[watchdog] Auto-restart watchdog started (will trigger at 5h 30m)"
-
-      - name: Create Tunnel
-        run: .\ngrok\ngrok.exe tcp 3389
+    - name: Download
+      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+    - name: Extract
+      run: Expand-Archive ngrok.zip
+    - name: Auth
+      run: .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_TOKEN }}
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+    - name: Create Tunnel
+      run: .\ngrok\ngrok.exe tcp 3389
