@@ -1,0 +1,18 @@
+name: Windows VPS
+
+on: workflow_dispatch
+
+jobs:
+  boot:
+
+    runs-on: [self-hosted, Windows]
+
+    steps:
+    - name: Download Ngrok
+      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+    - name: Extract Ngrok
+      run: Expand-Archive ngrok.zip -Force
+    - name: Auth Ngrok
+      run: .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_TOKEN }}
+    - name: Create Tunnel
+      run: .\ngrok\ngrok.exe tcp 3389
