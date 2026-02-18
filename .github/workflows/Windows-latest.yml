@@ -40,22 +40,61 @@ jobs:
 
       - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
 
+      - name: Place Desktop Control Scripts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+        shell: pwsh
+        run: |
+          $token   = $env:GH_TOKEN
+          $repo    = $env:REPO
+          $ref     = $env:REF
+          $desktop = "C:\Users\runneradmin\Desktop"
+          New-Item -ItemType Directory -Force -Path $desktop | Out-Null
+
+          $uri = "https://api.github.com/repos/$repo/actions/workflows/Windows-latest.yml/dispatches"
+          $bv  = '{"ref":"' + $ref + '","inputs":{"auto_restart":"true"}}'
+
+          # --- Redeploy.ps1 ---
+          @(
+            "# Trigger a fresh Windows session, then kill the current ngrok tunnel"
+            "Write-Host '[redeploy] Triggering new session...'"
+            "`$h = @{ Authorization = 'token $token'; Accept = 'application/vnd.github.v3+json' }"
+            "`$b = '$bv'"
+            "Invoke-RestMethod -Uri '$uri' -Method POST -Headers `$h -Body `$b -ContentType 'application/json'"
+            "Write-Host '[redeploy] New session queued. Reconnect via RDP in ~30 seconds.'"
+            "Start-Sleep -Seconds 3"
+            "Stop-Process -Name 'ngrok' -Force -ErrorAction SilentlyContinue"
+          ) | Set-Content "$desktop\Redeploy.ps1"
+
+          # --- Wipe.ps1 ---
+          @(
+            "# Kill the ngrok tunnel without triggering a new session"
+            "Write-Host '[wipe] Tearing down RDP tunnel...'"
+            "Stop-Process -Name 'ngrok' -Force -ErrorAction SilentlyContinue"
+            "Write-Host '[wipe] Done. Session destroyed.'"
+          ) | Set-Content "$desktop\Wipe.ps1"
+
+          Write-Host "[setup] Desktop scripts ready: Redeploy.ps1 and Wipe.ps1"
+
       - name: Auto-Restart Watchdog
         if: inputs.auto_restart == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref_name }}
+        shell: pwsh
         run: |
           $watchdog = {
             param($token, $repo, $ref)
-            # Sleep 5.5 hours then trigger a new session
             Start-Sleep -Seconds 19800
-            $body = "{`"ref`":`"$ref`",`"inputs`":{`"auto_restart`":`"true`"}}"
-            Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/actions/workflows/Windows-latest.yml/dispatches" `
+            $bv  = '{"ref":"' + $ref + '","inputs":{"auto_restart":"true"}}'
+            $uri = "https://api.github.com/repos/$repo/actions/workflows/Windows-latest.yml/dispatches"
+            Invoke-RestMethod -Uri $uri `
               -Method POST `
               -Headers @{ Authorization = "token $token"; Accept = "application/vnd.github.v3+json" } `
-              -Body $body `
+              -Body $bv `
               -ContentType "application/json"
             Write-Host "[watchdog] New session triggered. Reconnect via RDP in ~30s."
           }
